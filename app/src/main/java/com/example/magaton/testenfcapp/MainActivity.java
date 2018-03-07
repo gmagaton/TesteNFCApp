@@ -60,7 +60,7 @@ public class MainActivity extends Activity {
         if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)
                 || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)
                 || NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
-            stats.append("Lendo NFC");
+            stats.append("Lendo NFC\n");
             Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
             MifareClassic mifare = MifareClassic.get(tag);
             stats.append("Conectando a TAG NFC\n");
