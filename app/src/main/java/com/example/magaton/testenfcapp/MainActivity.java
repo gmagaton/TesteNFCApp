@@ -11,21 +11,24 @@ import android.nfc.Tag;
 import android.nfc.tech.MifareClassic;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.apache.http.util.ByteArrayBuffer;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Date;
 
 public class MainActivity extends Activity {
-    NfcAdapter nfcAdapter;
-    PendingIntent pendingIntent;
-    IntentFilter writeTagFilters[];
-    boolean writeMode;
-    TextView stats;
+
+    private TextView stats;
+    private LeitorNFC leitorNFC;
+    private Context context;
 
     class BotaoLimpar implements View.OnClickListener {
         @Override
@@ -34,85 +37,76 @@ public class MainActivity extends Activity {
         }
     }
 
+    class BotaoValidar implements View.OnClickListener {
+        private final LeitorNFC leitorNFC;
+        private final Context context;
+
+        BotaoValidar(Context context, LeitorNFC leitorNFC) {
+            this.leitorNFC = leitorNFC;
+            this.context = context;
+        }
+
+        @Override
+        public void onClick(View v) {
+            verificarNFC();
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        context = this;
 
         Button btLimpar = findViewById(R.id.btLimpar);
         btLimpar.setOnClickListener(new BotaoLimpar());
 
         stats = findViewById(R.id.txtStatus);
-        stats.append("\nInicializando\n");
 
-        nfcAdapter = NfcAdapter.getDefaultAdapter(this);
-        if (nfcAdapter == null) {
-            // Stop here, we definitely need NFC
-            Toast.makeText(this, "This device doesn't support NFC.", Toast.LENGTH_LONG).show();
-            finish();
-        }
-
-        if (!nfcAdapter.isEnabled()) {
-            Toast.makeText(this, "HABILITE O NFC.", Toast.LENGTH_LONG).show();
-            finish();
-        }
-
-        pendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
         IntentFilter tagDetected = new IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED);
         tagDetected.addCategory(Intent.CATEGORY_DEFAULT);
-        writeTagFilters = new IntentFilter[]{tagDetected};
+        IntentFilter[] filters = new IntentFilter[]{tagDetected};
+
+        leitorNFC = new LeitorNFC(NfcAdapter.getDefaultAdapter(this), this, pendingIntent, filters, MifareClassic.KEY_DEFAULT);
+
+        Button btValidar = findViewById(R.id.btValidar);
+        btValidar.setOnClickListener(new BotaoValidar(context, leitorNFC));
+
+        verificarNFC();
+
+
     }
 
-    private void displayByteArray(byte[] bytes) {
-        String res = "";
-        StringBuilder builder = new StringBuilder().append("[");
-        for (int i = 0; i < bytes.length; i++) {
-            res += (char) bytes[i];
+    private void verificarNFC() {
+        if (leitorNFC.possui()) {
+            if (leitorNFC.ligado()) {
+                Toast.makeText(this, "NFC está LIGADO", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "NFC NÃO está LIGADO", Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "Não possui NFC", Toast.LENGTH_LONG).show();
         }
-        stats.append("RAW: " + res + "\n");
     }
 
-    private void readFromIntent(Intent intent) {
-        String action = intent.getAction();
-        boolean isNfc = NfcAdapter.ACTION_TAG_DISCOVERED.equals(action) || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action) || NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action);
-        if (!isNfc) {
+    private void verificarAcaoNFC(Intent intent) {
+        if (!LeitorNFC.isNfcAction(intent)) {
             return;
         }
 
-        stats.append("Lendo NFC\n");
-        Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-        MifareClassic mifare = MifareClassic.get(tag);
-        stats.append("Conectando a TAG NFC\n");
+        ByteArrayBuffer b = new ByteArrayBuffer(64);
+
+
         try {
             Date ini = new Date();
-            mifare.setTimeout(30000);
-            mifare.connect();
-            stats.append("Conectou com a TAG NFC\n");
-            for (int i = 0; i < mifare.getSectorCount(); i++) {
-                stats.append("Autenticando Setor " + i);
-                boolean autenticou = mifare.authenticateSectorWithKeyA(i, MifareClassic.KEY_DEFAULT);
-                int cont = 1;
-                while (autenticou == false) {
-                    cont++;
-                    autenticou = mifare.authenticateSectorWithKeyA(i, MifareClassic.KEY_DEFAULT);
-                    if (cont >= 200) {
-                        break;
-                    }
-                }
-                if (autenticou) {
-                    stats.append(" " + cont + " autenticou\n");
-                } else {
-                    stats.append(" " + cont + " não autenticou\n");
-                }
-            }
+            String setores = leitorNFC.lerSetores(intent);
             Date fim = new Date();
-
             long diff = fim.getTime() - ini.getTime();
-
-            stats.append(mifare.getBlockCount() + " blocos encontrados em " + diff + " ms\n");
-            stats.append("Desconectou com a TAG NFC\n\n");
-            mifare.close();
+            stats.append("Dados \n" + setores + "\n");
+            stats.append("Leitura efetuada em " + diff + " ms\n");
         } catch (Throwable e) {
+            Log.i(this.getLocalClassName(), "Error: " + e.getMessage());
             stats.append("Erro ao conectar com a tag NFC: " + e.getMessage() + "\n\n");
         }
 
@@ -121,28 +115,20 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(final Intent intent) {
         setIntent(intent);
-        readFromIntent(intent);
+        verificarAcaoNFC(intent);
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        WriteModeOff();
+        leitorNFC.off();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        WriteModeOn();
+        leitorNFC.on();
     }
 
-    private void WriteModeOn() {
-        writeMode = true;
-        nfcAdapter.enableForegroundDispatch(this, pendingIntent, writeTagFilters, null);
-    }
 
-    private void WriteModeOff() {
-        writeMode = false;
-        nfcAdapter.disableForegroundDispatch(this);
-    }
 }

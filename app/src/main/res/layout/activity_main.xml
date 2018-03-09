@@ -26,14 +26,26 @@
             android:text="Status"
             android:textSize="18sp" />
 
-        <TextView
-            android:id="@+id/txtStatus"
+        <ScrollView
+            android:layout_width="354dp"
+            android:layout_height="348dp">
+
+            <TextView
+                android:id="@+id/txtStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="10sp" />
+        </ScrollView>
+
+        <Button
+            android:id="@+id/btValidar"
             android:layout_width="match_parent"
-            android:layout_height="381dp" />
+            android:layout_height="wrap_content"
+            android:text="Validar NFC" />
 
         <Button
             android:id="@+id/btLimpar"
-            android:layout_width="353dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Limpar" />
 
