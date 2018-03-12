@@ -10,6 +10,11 @@ import android.nfc.tech.MifareClassic;
 import android.nfc.tech.NfcA;
 import android.util.Log;
 
+import org.apache.http.util.ByteArrayBuffer;
+
+import java.io.IOException;
+import java.util.Arrays;
+
 /**
  * Created by Gabriel.Magaton on 09/03/2018.
  */
@@ -59,8 +64,11 @@ public class LeitorNFC {
 
     public String lerSetores(Intent intent) throws LeitorNFCException {
         StringBuilder builder = new StringBuilder();
+        //final ByteArrayBuffer bytes = new ByteArrayBuffer(64);
         MifareClassic m = conectarNFC(intent);
         int setores = contarSetores(intent);
+        int offset = 0;
+        int tam = 16;
 
         for (int setor = 0; setor < setores; setor++) {
             builder.append("Setor " + setor + "\n");
@@ -68,11 +76,16 @@ public class LeitorNFC {
             int blocosSetor = m.getBlockCountInSector(setor);
             int bloco = m.sectorToBlock(setor);
             for (int i = 0; i < blocosSetor; i++) {
-                String blocoConteudo = lerBloco(intent, bloco);
-                builder.append("[" + bloco + "] " + blocoConteudo + "\n");
+                byte[] blocoConteudo = lerBloco(intent, setor, bloco);
+                builder.append("[" + bloco + "] " + StringUtils.bytesToHex(blocoConteudo) + "\n");
+                int size = tam < blocoConteudo.length ? blocoConteudo.length : tam;
+                //bytes.append(blocoConteudo, offset, size);
                 bloco++;
+                offset += tam;
             }
+            disconnect();
         }
+        //builder.append(" Bytes: "+StringUtils.bytesToHex(bytes.toByteArray()));
         return builder.toString();
     }
 
@@ -104,35 +117,54 @@ public class LeitorNFC {
         return setores;
     }
 
-    private String lerBloco(Intent intent, int bloco) throws LeitorNFCException {
+    private byte[] lerBloco(Intent intent, int setor, int bloco) throws LeitorNFCException {
         MifareClassic m = conectarNFC(intent);
         boolean leu = false;
-        String blocoConteudo = null;
+        byte[] dadoBlocoSetor = null;
         while (!leu) {
             Log.d(LeitorNFC.class.getName(), "Lendo bloco: " + bloco);
             try {
-                byte[] dadoBlocoSetor = m.readBlock(bloco);
-                blocoConteudo = StringUtils.bytesToHex(dadoBlocoSetor);
+                dadoBlocoSetor = m.readBlock(bloco);
+                int length = dadoBlocoSetor.length;
+                while (length != MifareClassic.BLOCK_SIZE) {
+                    throw new Exception("Tamanho lido do bloco inválido: " + length + " data: " + StringUtils.bytesToHex(dadoBlocoSetor));
+                }
+                Log.d(LeitorNFC.class.getName(), "Leu bloco: " + bloco + " tamanho: " + dadoBlocoSetor.length);
                 leu = true;
             } catch (Throwable e) {
                 leu = false;
                 Log.e(LeitorNFC.class.getName(), "Erro ao ler bloco: " + bloco + " : " + e.getMessage());
+                //disconnect();
+                autenticarSetor(intent, setor);
             }
         }
-        return blocoConteudo;
+        return dadoBlocoSetor;
     }
 
     private void autenticarSetor(Intent intent, int setor) throws LeitorNFCException {
         MifareClassic m = conectarNFC(intent);
         boolean autenticou = false;
+        int contador = 0;
+        Log.d(LeitorNFC.class.getName(), "Autenticando setor: " + setor);
         while (!autenticou) {
-            Log.d(LeitorNFC.class.getName(), "Autenticando setor: " + setor);
             try {
+                contador++;
                 autenticou = m.authenticateSectorWithKeyA(setor, keyA);
             } catch (Throwable e) {
                 autenticou = false;
                 Log.e(LeitorNFC.class.getName(), "Erro ao autenticar setor: " + setor + " : " + e.getMessage());
             }
+        }
+        Log.d(LeitorNFC.class.getName(), "Autenticou setor: " + setor + " em:" + contador + " tentativas");
+
+    }
+
+    private void disconnect() {
+        try {
+            Log.i(LeitorNFC.class.getName(), "Desconectando com o NFC: ");
+            mifare.close();
+        } catch (IOException e) {
+            Log.e(LeitorNFC.class.getName(), "Erro ao desconectar NFC: " + e.getMessage());
         }
     }
 
@@ -149,6 +181,7 @@ public class LeitorNFC {
         while (!conectado) {
             try {
                 Log.i(LeitorNFC.class.getName(), "Conectando com o NFC: ");
+                mifare.setTimeout(10000);
                 mifare.connect();
                 conectado = mifare.isConnected();
             } catch (Throwable e) {
